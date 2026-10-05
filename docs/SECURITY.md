@@ -36,3 +36,26 @@ paths, and a public bug-bounty programme are in place.
 Please responsibly disclose issues to the maintainers via GitHub Security
 Advisories on this repository. Do not open public issues for exploitable
 vulnerabilities before a fix is available.
+
+
+## Remediation status (internal audit, 2026-10-05)
+
+Fixes landed for all **Critical** and **High** findings from the independent
+audit of commit `f5b66549` (report: internal `/workspace/audit/BitSync-Audit-Report.md`):
+
+| ID | Status | Notes |
+| --- | --- | --- |
+| BSY-C1 | **Fixed** | Per-asset soft-cap refunds (`ethRefunded` + per-stable `stablePaid`); allocation voided once |
+| BSY-C2 | **Fixed** | No Anvil default key; `COMPLIANCE_SIGNER_KEY` server-only; country from headers; KYC provider fail-closed; on-chain KYC nonce |
+| BSY-C3 | **Fixed** | Deploy grants `COMPLIANCE_ROLE` to designated signer; deployer renounces |
+| BSY-H1 | **Fixed** | Canonical feed id = UTF-8 label in `bytes32` (Solidity / Rust / TS + vectors) |
+| BSY-H2 | **Fixed** | `setConfig` reverts with `ConfigLocked` once `block.timestamp >= config.start` |
+| BSY-H3 | **Fixed** | MAD rejection band `max(ceil(k*MAD), 1)` so even honest committees finalise |
+| BSY-H4 | **Fixed** | Report timestamp = median of accepted observation timestamps |
+| BSY-H5 | **Fixed** | Persist last-signed observation digest per (feed, round); refuse equivocation |
+| BSY-H6 | **Fixed** | Larger gossip buffer, Lagged warnings, per-peer rate limit + dedupe gate |
+| BSY-H7 | **Fixed** | `operator_key_path` required at binary start; ephemeral keys tests-only |
+| BSY-H8 | **Fixed** | TS `verifyQuorum` requires trusted stake map and strict `>2/3` |
+
+Medium / Low items (sequencer checks, Next.js upgrades, metrics bind address, etc.)
+remain open — see the audit report.
