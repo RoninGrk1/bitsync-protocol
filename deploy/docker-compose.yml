@@ -1,0 +1,44 @@
+# Local 4-node devnet (n = 3f + 1, f = 1) with Prometheus + Grafana.
+# Each node currently runs offline rounds against its own signed mock source;
+# see docs/ARCHITECTURE.md for the networked-consensus roadmap.
+x-node: &node
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  environment:
+    RUST_LOG: info
+  volumes:
+    - ./devnet:/devnet:ro
+
+services:
+  node0:
+    <<: *node
+    command: ["--config", "/devnet/node0.toml"]
+    ports: ["9100:9100"]
+  node1:
+    <<: *node
+    command: ["--config", "/devnet/node1.toml"]
+    ports: ["9101:9100"]
+  node2:
+    <<: *node
+    command: ["--config", "/devnet/node2.toml"]
+    ports: ["9102:9100"]
+  node3:
+    <<: *node
+    command: ["--config", "/devnet/node3.toml"]
+    ports: ["9103:9100"]
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["9090:9090"]
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-local-only}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]

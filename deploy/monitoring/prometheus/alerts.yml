@@ -1,0 +1,18 @@
+groups:
+  - name: bitsync
+    rules:
+      - alert: BitSyncRoundFailures
+        expr: increase(bitsync_rounds_failed[5m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BitSync node round failures"
+          description: "Node {{ $labels.instance }} has elevated round failures."
+      - alert: BitSyncNoReports
+        expr: increase(bitsync_reports_finalised[10m]) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "BitSync node produced no reports"

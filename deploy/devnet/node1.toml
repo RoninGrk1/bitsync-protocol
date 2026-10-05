@@ -1,0 +1,7 @@
+node_id = "node-1"
+feeds = ["BTC/USD", "ETH/USD"]
+metrics_listen = "0.0.0.0:9100"
+committee_n = 4
+round_interval_secs = 5
+chain_id = 31337
+verifying_contract = "0x1111111111111111111111111111111111111111"

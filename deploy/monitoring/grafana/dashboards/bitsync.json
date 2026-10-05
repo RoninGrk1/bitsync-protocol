@@ -1,0 +1,49 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Reports finalised",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "rate(bitsync_reports_finalised[1m])", "legendFormat": "{{instance}}" }
+      ],
+      "id": 1
+    },
+    {
+      "type": "timeseries",
+      "title": "Rounds OK / Failed",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "rate(bitsync_rounds_ok[1m])", "legendFormat": "ok {{instance}}" },
+        { "expr": "rate(bitsync_rounds_failed[1m])", "legendFormat": "fail {{instance}}" }
+      ],
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Last round",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "targets": [{ "expr": "bitsync_last_round", "legendFormat": "{{instance}}" }],
+      "id": 3
+    },
+    {
+      "type": "timeseries",
+      "title": "Ticks verified",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 8 },
+      "targets": [
+        { "expr": "rate(bitsync_ticks_verified[1m])", "legendFormat": "{{instance}}" }
+      ],
+      "id": 4
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["bitsync", "oracle"],
+  "title": "BitSync Oracle",
+  "uid": "bitsync-oracle",
+  "version": 1
+}
