@@ -1,0 +1,23 @@
+{
+  "chainId": 31337,
+  "domainName": "BitSync Oracle",
+  "domainVersion": "1",
+  "feedId": "0x4254432f55534400000000000000000000000000000000000000000000000000",
+  "name": "bitsync-report-v1",
+  "notes": "signerPrivateKey is the well-known Anvil #0 key, published for deterministic vectors only.",
+  "observationConfidence": 500000000,
+  "observationDigest": "0x65e06903dce58b8229674ffa2e08d0c642d7ab7665de8d5f2d86b6559c3cd416",
+  "observationPrice": 6425100000000,
+  "observationSignature": "0x3d5797e51a486054c041fab3f33dd67158cd2be8a9c6a32cc729c1911fe7d90200f50ae7098b91ed87dda68f0ac9a17a068351346d67df98f8301e51b6f0e9e41c",
+  "observationTypehash": "0x8436b45adb121028c8344c2bddb18d753f1263be60ddd5b3b3aff2603aac9afe",
+  "reportConfidence": 1000000000,
+  "reportDigest": "0xaf7b13ad8434617fd477e028d2eb1ac4755ebbdbbcfe1ac73c930643de4502e1",
+  "reportPrice": 6425000000000,
+  "reportSignature": "0x7eb84efc984a11c74b622f32a71d4bc6798eff554d6d71450c52cc1cd4a5ccee2a72b931d4657590a64321430dceb7669eb3eee2193b84e87f2cbd52fee52dbd1c",
+  "reportTypehash": "0xbad2717c150744180944312f15f3f58cacf36b17cb57e88eb788cc253c01c487",
+  "round": 42,
+  "signer": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+  "signerPrivateKey": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  "timestamp": 1700000000,
+  "verifyingContract": "0x1111111111111111111111111111111111111111"
+}

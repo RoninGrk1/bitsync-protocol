@@ -23,6 +23,7 @@ pub mod bsy;
 pub mod ecdsa;
 pub mod error;
 pub mod hash;
+pub mod observation;
 pub mod report;
 pub mod signer;
 pub mod threshold;
@@ -32,5 +33,6 @@ pub use bsy::{
 };
 pub use ecdsa::{Address, EthSignature};
 pub use error::CryptoError;
+pub use observation::Observation;
 pub use report::{Domain, Report};
 pub use signer::{KeyProvider, Signer, SoftwareKeyProvider, SoftwareSigner};

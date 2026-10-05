@@ -2,34 +2,30 @@
 pragma solidity ^0.8.24;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {StakingManager} from "./StakingManager.sol";
+import {Report, Observation, BitSyncTypes} from "./BitSyncTypes.sol";
 
 /// @title OracleAggregator
-/// @notice Accepts threshold ECDSA-quorum reports from registered operators.
-/// @dev Upgrade path to BLS aggregate signatures is documented in docs/ARCHITECTURE.md.
-///      Domain: EIP712("BitSync Oracle", "1").
-contract OracleAggregator is AccessControl, EIP712 {
+/// @notice Accepts reports co-signed by registered operators whose combined active
+///         stake is STRICTLY greater than 2/3 of total active stake.
+/// @dev Signatures must be ordered by strictly ascending signer address (cheap
+///      duplicate rejection). Domain: EIP712("BitSync Oracle", "1"). The BLS / FROST
+///      upgrade path is documented in docs/ARCHITECTURE.md.
+contract OracleAggregator is AccessControl, Pausable, EIP712 {
     bytes32 public constant GOVERNANCE_ROLE = keccak256("GOVERNANCE_ROLE");
     bytes32 public constant FEED_ADMIN_ROLE = keccak256("FEED_ADMIN_ROLE");
+    bytes32 public constant GUARDIAN_ROLE = keccak256("GUARDIAN_ROLE");
 
-    bytes32 public constant REPORT_TYPEHASH = keccak256(
-        "Report(bytes32 feedId,int256 price,uint256 confidence,uint64 timestamp,uint64 round)"
-    );
-
-    struct Report {
-        bytes32 feedId;
-        int256 price;
-        uint256 confidence;
-        uint64 timestamp;
-        uint64 round;
-    }
+    /// @notice Max tolerated clock skew for report timestamps in the future.
+    uint64 public constant MAX_FUTURE_DRIFT = 60;
 
     struct FeedConfig {
         bool active;
         uint8 decimals;
-        uint64 minQuorum; // number of operator signatures required
+        uint64 minSigners; // defence-in-depth floor on top of the stake quorum
         uint64 maxStaleness; // seconds
     }
 
@@ -44,85 +40,124 @@ contract OracleAggregator is AccessControl, EIP712 {
     StakingManager public immutable staking;
     mapping(bytes32 => FeedConfig) public feeds;
     mapping(bytes32 => RoundData) public latest;
-    mapping(bytes32 => mapping(uint64 => bool)) public roundConsumed;
 
-    event FeedUpserted(bytes32 indexed feedId, uint8 decimals, uint64 minQuorum, uint64 maxStaleness);
+    event FeedUpserted(bytes32 indexed feedId, uint8 decimals, uint64 minSigners, uint64 maxStaleness);
+    event FeedDeactivated(bytes32 indexed feedId);
     event ReportAccepted(
-        bytes32 indexed feedId, uint64 round, int256 price, uint256 confidence, uint64 timestamp
+        bytes32 indexed feedId,
+        uint64 indexed round,
+        int256 price,
+        uint256 confidence,
+        uint64 timestamp,
+        uint256 signedStake,
+        uint256 totalActiveStake
     );
 
+    error ZeroAddress();
+    error InvalidConfig();
+    error FeedInactive();
+    error StaleRound();
+    error StaleReport();
+    error FutureReport();
+    error TooFewSigners();
+    error SignersNotAscending();
+    error NotActiveOperator(address signer);
+    error NoActiveStake();
+    error InsufficientStakeQuorum(uint256 signedStake, uint256 totalActiveStake);
+
     constructor(address staking_, address admin) EIP712("BitSync Oracle", "1") {
-        require(staking_ != address(0) && admin != address(0), "Oracle: zero");
+        if (staking_ == address(0) || admin == address(0)) revert ZeroAddress();
         staking = StakingManager(staking_);
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(GOVERNANCE_ROLE, admin);
         _grantRole(FEED_ADMIN_ROLE, admin);
     }
 
-    function upsertFeed(bytes32 feedId, uint8 decimals_, uint64 minQuorum, uint64 maxStaleness)
+    // ------------------------------------------------------------------ admin
+
+    function upsertFeed(bytes32 feedId, uint8 decimals_, uint64 minSigners, uint64 maxStaleness)
         external
         onlyRole(FEED_ADMIN_ROLE)
     {
-        require(minQuorum > 0, "Oracle: quorum");
-        feeds[feedId] =
-            FeedConfig({active: true, decimals: decimals_, minQuorum: minQuorum, maxStaleness: maxStaleness});
-        emit FeedUpserted(feedId, decimals_, minQuorum, maxStaleness);
+        if (minSigners == 0 || maxStaleness == 0) revert InvalidConfig();
+        feeds[feedId] = FeedConfig({
+            active: true, decimals: decimals_, minSigners: minSigners, maxStaleness: maxStaleness
+        });
+        emit FeedUpserted(feedId, decimals_, minSigners, maxStaleness);
     }
 
     function deactivateFeed(bytes32 feedId) external onlyRole(FEED_ADMIN_ROLE) {
         feeds[feedId].active = false;
+        emit FeedDeactivated(feedId);
     }
 
-    /// @notice EIP-712 digest for a report (matches Rust `Report::digest`).
+    function pause() external onlyRole(GUARDIAN_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(GOVERNANCE_ROLE) {
+        _unpause();
+    }
+
+    // ---------------------------------------------------------------- digests
+
+    /// @notice EIP-712 digest of a report (matches Rust `Report::digest` and the TS SDK).
     function reportDigest(Report calldata report) public view returns (bytes32) {
-        return _hashTypedDataV4(
-            keccak256(
-                abi.encode(
-                    REPORT_TYPEHASH,
-                    report.feedId,
-                    report.price,
-                    report.confidence,
-                    report.timestamp,
-                    report.round
-                )
-            )
-        );
+        return _hashTypedDataV4(BitSyncTypes.structHash(report));
     }
 
-    /// @notice Submit a report with `signatures` from distinct registered operators.
-    function submitReport(
-        Report calldata report,
-        address[] calldata operators,
-        bytes[] calldata signatures
-    ) external {
+    /// @notice EIP-712 digest of an operator observation.
+    function observationDigest(Observation calldata observation) public view returns (bytes32) {
+        return _hashTypedDataV4(BitSyncTypes.structHash(observation));
+    }
+
+    // ------------------------------------------------------------- submission
+
+    /// @notice Submit a report with signatures ordered by ascending signer address.
+    function submitReport(Report calldata report, bytes[] calldata signatures)
+        external
+        whenNotPaused
+    {
         FeedConfig memory cfg = feeds[report.feedId];
-        require(cfg.active, "Oracle: inactive");
-        require(operators.length == signatures.length, "Oracle: length");
-        require(operators.length >= cfg.minQuorum, "Oracle: quorum");
-        require(!roundConsumed[report.feedId][report.round], "Oracle: round");
-        require(report.timestamp + cfg.maxStaleness >= block.timestamp, "Oracle: stale");
-        require(report.timestamp <= block.timestamp + 60, "Oracle: future");
+        if (!cfg.active) revert FeedInactive();
+        if (report.round <= latest[report.feedId].round) revert StaleRound();
+        if (uint256(report.timestamp) + cfg.maxStaleness < block.timestamp) revert StaleReport();
+        if (report.timestamp > block.timestamp + MAX_FUTURE_DRIFT) revert FutureReport();
+        if (signatures.length < cfg.minSigners) revert TooFewSigners();
+
+        uint256 total = staking.totalActiveStake();
+        if (total == 0) revert NoActiveStake();
 
         bytes32 digest = reportDigest(report);
-        for (uint256 i = 0; i < operators.length; i++) {
-            address op = operators[i];
-            require(staking.isOperator(op), "Oracle: not operator");
-            for (uint256 j = 0; j < i; j++) {
-                require(operators[j] != op, "Oracle: dup");
-            }
-            require(ECDSA.recover(digest, signatures[i]) == op, "Oracle: bad sig");
+        uint256 signedStake;
+        address prev;
+        for (uint256 i = 0; i < signatures.length; i++) {
+            address signer = ECDSA.recover(digest, signatures[i]);
+            if (signer <= prev) revert SignersNotAscending();
+            prev = signer;
+            uint256 s = staking.activeStakeOf(signer);
+            if (s == 0) revert NotActiveOperator(signer);
+            signedStake += s;
         }
+        // Strictly greater than 2/3 of total active stake.
+        if (signedStake * 3 <= total * 2) revert InsufficientStakeQuorum(signedStake, total);
 
-        roundConsumed[report.feedId][report.round] = true;
         latest[report.feedId] = RoundData({
             price: report.price,
             confidence: report.confidence,
             timestamp: report.timestamp,
             round: report.round,
+            // forge-lint: disable-next-line(unsafe-typecast)
             answeredAt: uint64(block.timestamp)
         });
         emit ReportAccepted(
-            report.feedId, report.round, report.price, report.confidence, report.timestamp
+            report.feedId,
+            report.round,
+            report.price,
+            report.confidence,
+            report.timestamp,
+            signedStake,
+            total
         );
     }
 

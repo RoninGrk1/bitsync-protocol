@@ -6,11 +6,16 @@ solc = "0.8.24"
 optimizer = true
 optimizer_runs = 200
 ffi = false
-via_ir = false
-fs_permissions = [{ access = "read", path = "./" }]
+via_ir = true
+fs_permissions = [{ access = "read-write", path = "../test-vectors" }]
 
 [profile.default.fuzz]
 runs = 256
+
+[profile.default.invariant]
+runs = 64
+depth = 40
+fail_on_revert = false
 
 [fmt]
 line_length = 100
