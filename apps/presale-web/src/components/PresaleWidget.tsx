@@ -12,8 +12,8 @@ import {
   parseUsd,
   USD_SCALE,
 } from "@bitsync/sdk";
-import { formatBsy } from "@bitsync/sdk";
 import { addresses } from "@/lib/config";
+import { formatBsyGrouped } from "@/lib/format";
 
 type Pay = "ETH" | "USDC" | "USDT";
 
@@ -84,10 +84,9 @@ export function PresaleWidget() {
     if (pay === "ETH") {
       try {
         const eth = parseEther(amount || "0");
-        // Offline approx at $2000/ETH for display before RPC quote
         const usd = (eth * 2000n * USD_SCALE) / 10n ** 18n;
         const bsy = offlineQuoteBsy(usd, price);
-        return { bsy, label: `${formatBsy(bsy)} (est.)` };
+        return { bsy, label: `${formatBsyGrouped(bsy)} (est.)` };
       } catch {
         return { bsy: 0n, label: "—" };
       }
@@ -95,7 +94,7 @@ export function PresaleWidget() {
     try {
       const usd = parseUsd(amount || "0");
       const bsy = offlineQuoteBsy(usd, price);
-      return { bsy, label: formatBsy(bsy) };
+      return { bsy, label: formatBsyGrouped(bsy) };
     } catch {
       return { bsy: 0n, label: "—" };
     }
@@ -121,7 +120,6 @@ export function PresaleWidget() {
       setError("Connect a wallet and ensure contracts are configured in .env.local.");
       return;
     }
-    // Geo gate via API
     const geo = await fetch("/api/compliance/check").then((r) => r.json());
     if (geo.blocked) {
       setError(`Purchases are not available in your jurisdiction (${geo.country || "unknown"}).`);
@@ -151,12 +149,17 @@ export function PresaleWidget() {
       let hash: Hex;
       if (pay === "ETH") {
         const ethWei = parseEther(amount || "0");
-        hash = await client.buyWithEth(walletClient, address, ethWei, quote.bsy > 0n ? (quote.bsy * 99n) / 100n : 0n, kyc);
+        hash = await client.buyWithEth(
+          walletClient,
+          address,
+          ethWei,
+          quote.bsy > 0n ? (quote.bsy * 99n) / 100n : 0n,
+          kyc,
+        );
       } else {
         const token = pay === "USDC" ? addresses.usdc : addresses.usdt;
-        // amount is USD; convert to 6-dec stable
         const usd = parseUsd(amount || "0");
-        const stableAmt = usd / 100n; // 1e8 -> 1e6
+        const stableAmt = usd / 100n;
         hash = await client.buyWithStable(
           walletClient,
           address,
@@ -191,78 +194,96 @@ export function PresaleWidget() {
   }
 
   const progress = status ? Math.min(100, status.progressBps / 100) : 0;
-  const sold = status ? formatBsy(status.totalSold) : "—";
+  const sold = status ? formatBsyGrouped(status.totalSold) : "—";
+  const capLabel = formatBsyGrouped(PRESALE_ALLOCATION);
   const priceLabel = status
     ? formatUsd(status.priceUsdPerBsy)
     : formatUsd(SUGGESTED_PRICE_USD_PER_BSY);
 
   return (
-    <div className="glass p-6 shadow-[0_0_60px_rgba(30,144,255,0.15)]" id="presale">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold">BSY Presale</h2>
-          <p className="text-sm text-bit-muted">
+    <div
+      className="glass w-full max-w-full p-4 shadow-[0_0_60px_rgba(30,144,255,0.15)] sm:p-6"
+      id="presale"
+    >
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold sm:text-xl">BSY Presale</h2>
+          <p className="text-sm leading-relaxed text-bit-muted">
             6.3M BSY (15%) · suggested {priceLabel} / BSY · hard cap ~$1.26M
           </p>
         </div>
-        <div className="rounded-lg bg-sync/15 px-3 py-1 text-xs font-medium text-sync-glow">
+        <div className="inline-flex w-fit shrink-0 items-center rounded-lg bg-sync/15 px-3 py-2 text-xs font-medium text-sync-glow">
           Ends in {countdown}
         </div>
       </div>
 
       <div className="mb-4">
-        <div className="mb-1 flex justify-between text-xs text-bit-muted">
-          <span>{sold} sold</span>
-          <span>{formatBsy(PRESALE_ALLOCATION)} cap</span>
+        <div className="mb-1 flex flex-wrap justify-between gap-x-2 gap-y-1 text-xs text-bit-muted">
+          <span data-testid="presale-sold">{sold} sold</span>
+          <span data-testid="presale-cap">{capLabel} cap</span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-white/10">
-          <div className="h-full rounded-full bg-gradient-to-r from-sync-deep to-sync-glow" style={{ width: `${progress}%` }} />
+        <div className="h-2.5 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-sync-deep to-sync-glow"
+            style={{ width: `${progress}%` }}
+          />
         </div>
       </div>
 
-      <div className="mb-3 flex gap-2">
+      <div className="mb-3 grid grid-cols-3 gap-2" role="tablist" aria-label="Payment token">
         {(["ETH", "USDC", "USDT"] as Pay[]).map((p) => (
           <button
             key={p}
             type="button"
+            role="tab"
+            aria-selected={pay === p}
             onClick={() => setPay(p)}
-            className={`rounded-lg px-3 py-1.5 text-sm ${pay === p ? "bg-sync text-white" : "bg-white/5 text-bit-muted"}`}
+            className={`min-h-[44px] rounded-xl px-2 text-sm font-medium transition ${
+              pay === p ? "bg-sync text-white shadow-[0_0_16px_rgba(30,144,255,0.35)]" : "bg-white/5 text-bit-muted"
+            }`}
           >
             {p}
           </button>
         ))}
       </div>
 
-      <label className="mb-1 block text-xs text-bit-muted">
+      <label className="mb-1 block text-xs text-bit-muted" htmlFor="presale-amount">
         Amount ({pay === "ETH" ? "ETH" : "USD"})
       </label>
       <input
-        className="mb-3 w-full rounded-xl border border-white/10 bg-ink-soft px-4 py-3 outline-none focus:border-sync"
+        id="presale-amount"
+        className="mb-3 min-h-[48px] w-full rounded-xl border border-white/10 bg-ink-soft px-4 py-3 text-base outline-none focus:border-sync"
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
         inputMode="decimal"
+        autoComplete="off"
+        enterKeyHint="done"
         aria-label="Purchase amount"
       />
 
       <div className="mb-4 rounded-xl bg-white/5 px-4 py-3 text-sm">
-        <div className="flex justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
           <span className="text-bit-muted">You receive</span>
-          <span className="font-medium text-sync-glow">{quote.label}</span>
+          <span className="break-all font-medium text-sync-glow">{quote.label}</span>
         </div>
-        <div className="mt-1 flex justify-between text-xs text-bit-muted">
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-bit-muted">
           <span>Your allocation</span>
-          <span>{purchase ? formatBsy(purchase.bsyAllocated) : "—"}</span>
+          <span className="break-all">
+            {purchase ? formatBsyGrouped(purchase.bsyAllocated) : "—"}
+          </span>
         </div>
-        <div className="mt-1 flex justify-between text-xs text-bit-muted">
+        <div className="mt-1 flex flex-wrap justify-between gap-2 text-xs text-bit-muted">
           <span>Claimable</span>
-          <span>{purchase ? formatBsy(purchase.claimable) : "—"}</span>
+          <span className="break-all">
+            {purchase ? formatBsyGrouped(purchase.claimable) : "—"}
+          </span>
         </div>
       </div>
 
-      <label className="mb-4 flex items-start gap-2 text-xs text-bit-muted">
+      <label className="mb-4 flex min-h-[44px] items-start gap-3 text-sm leading-snug text-bit-muted">
         <input
           type="checkbox"
-          className="mt-0.5"
+          className="mt-1 h-5 w-5 shrink-0 accent-sync"
           checked={acked}
           onChange={(e) => setAcked(e.target.checked)}
         />
@@ -277,12 +298,17 @@ export function PresaleWidget() {
       </label>
 
       <div className="flex flex-col gap-2 sm:flex-row">
-        <button type="button" className="btn-primary flex-1" disabled={busy || !acked} onClick={onBuy}>
+        <button
+          type="button"
+          className="btn-primary w-full flex-1 text-sm sm:text-base"
+          disabled={busy || !acked}
+          onClick={onBuy}
+        >
           {busy ? "Confirm in wallet…" : isConnected ? `Buy with ${pay}` : "Connect wallet to buy"}
         </button>
         <button
           type="button"
-          className="btn-ghost"
+          className="btn-ghost w-full sm:w-auto sm:min-w-[6.5rem]"
           disabled={busy || !purchase || purchase.claimable === 0n}
           onClick={onClaim}
         >
@@ -290,16 +316,17 @@ export function PresaleWidget() {
         </button>
       </div>
 
-      {error && <p className="mt-3 text-sm text-red-400" role="alert">{error}</p>}
-      {tx && (
-        <p className="mt-3 break-all text-xs text-bit-muted">
-          Tx: {tx}
+      {error && (
+        <p className="mt-3 break-words text-sm text-red-400" role="alert">
+          {error}
         </p>
       )}
+      {tx && <p className="mt-3 break-all text-xs text-bit-muted">Tx: {tx}</p>}
       {!client && (
-        <p className="mt-3 text-xs text-amber-300">
+        <p className="mt-3 text-xs leading-relaxed text-amber-300">
           Contracts not configured — run the local demo script or set addresses in{" "}
-          <code>.env.local</code>. Offline quotes still use the suggested $0.20 price.
+          <code className="break-all">.env.local</code>. Offline quotes still use the suggested $0.20
+          price.
         </p>
       )}
     </div>

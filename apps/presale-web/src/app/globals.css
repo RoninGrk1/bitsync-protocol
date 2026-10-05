@@ -6,15 +6,33 @@
   color-scheme: dark;
 }
 
-html, body {
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body {
   min-height: 100%;
+  min-height: 100dvh;
   background: #050816;
   color: #F8FAFC;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 body {
   background-image: theme("backgroundImage.horizon-glow");
   background-attachment: fixed;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Avoid layout blowouts from long words / hash txns */
+* {
+  box-sizing: border-box;
 }
 
 a { color: inherit; text-decoration: none; }
@@ -24,11 +42,35 @@ a { color: inherit; text-decoration: none; }
 }
 
 .btn-primary {
-  @apply inline-flex items-center justify-center rounded-xl bg-sync px-5 py-3 font-semibold text-white
+  @apply inline-flex min-h-[44px] items-center justify-center rounded-xl bg-sync px-5 py-3 font-semibold text-white
     shadow-[0_0_24px_rgba(30,144,255,0.45)] transition hover:bg-sync-glow disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-ghost {
-  @apply inline-flex items-center justify-center rounded-xl border border-white/15 px-5 py-3 font-medium text-bit
-    hover:border-sync/60 hover:text-sync-glow transition;
+  @apply inline-flex min-h-[44px] items-center justify-center rounded-xl border border-white/15 px-5 py-3 font-medium text-bit
+    hover:border-sync/60 hover:text-sync-glow transition disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* RainbowKit connect control: keep compact on narrow screens */
+.rk-connect button {
+  min-height: 44px;
+}
+
+@media (max-width: 380px) {
+  .rk-connect [data-testid="rk-connect-button"],
+  .rk-connect button {
+    font-size: 0.8125rem;
+  }
 }

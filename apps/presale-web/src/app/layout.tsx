@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { Header } from "@/components/Header";
@@ -14,15 +14,28 @@ export const metadata: Metadata = {
     images: ["/hero.jpg"],
   },
   icons: { icon: "/hero.jpg" },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "BitSync",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  themeColor: "#050816",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className="antialiased">
         <Providers>
           <Header />
-          <main>{children}</main>
+          <main className="min-w-0 overflow-x-hidden">{children}</main>
           <Footer />
         </Providers>
       </body>
