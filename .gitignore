@@ -1,0 +1,42 @@
+# Rust
+/target/
+**/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Foundry
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+
+# Node / TypeScript
+node_modules/
+sdk/typescript/dist/
+sdk/typescript/coverage/
+*.tsbuildinfo
+.npm
+.pnpm-store/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!**/fixtures/**
+id_ed25519*
+**/secrets/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+*.log
+
+# Docker
+.docker/
+
+# Misc
+coverage/
+lcov.info
