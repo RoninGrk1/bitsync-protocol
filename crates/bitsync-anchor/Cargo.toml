@@ -1,0 +1,20 @@
+[package]
+name = "bitsync-anchor"
+description = "Bitcoin OP_RETURN commitment builder for BitSync oracle-state Merkle roots."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bitcoin = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

@@ -1,0 +1,18 @@
+[package]
+name = "bitsync-consensus"
+description = "BFT round-based, stake-weighted median aggregation with outlier rejection for BitSync oracles."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bitsync-crypto = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

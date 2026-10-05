@@ -1,0 +1,24 @@
+[package]
+name = "bitsync-p2p"
+description = "libp2p networking for BitSync oracle nodes (gossipsub + noise + yamux + identify + kad)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libp2p = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+# Pin: base45 3.2+ needs Rust 1.88 (slice_as_chunks); keep 3.0.1 for 1.85 CI.
+base45 = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+tracing-subscriber = { workspace = true }

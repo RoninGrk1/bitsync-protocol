@@ -1,0 +1,25 @@
+[package]
+name = "bitsync-storage"
+description = "IPFS + Arweave archival clients for signed BitSync oracle reports (trait-based, in-memory test impls)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+bytes = { workspace = true }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
