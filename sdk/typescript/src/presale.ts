@@ -34,13 +34,14 @@ export const PRESALE_ABI = parseAbi([
   "function quoteUsd(uint256 bsyAmount) view returns (uint256)",
   "function quoteEth(uint256 bsyAmount) view returns (uint256)",
   "function claimableOf(address account) view returns (uint256)",
-  "function purchases(address) view returns (uint256 bsyAllocated, uint256 usdPaid, uint256 claimed, uint256 ethPaid, bool refunded)",
+  "function purchases(address) view returns (uint256 bsyAllocated, uint256 usdPaid, uint256 claimed, uint256 ethPaid, bool allocationVoided, bool ethRefunded)",
   "function getConfig() view returns ((uint64 start, uint64 end, uint64 tge, uint256 priceUsdPerBsy, uint256 softCapBsy, uint256 minBuyUsd, uint256 maxBuyUsd, uint16 tgeUnlockBps, uint64 vestingDuration, uint64 oracleMaxStale, bool kycRequired))",
   "function buyWithEth(uint256 minBsyOut, bytes kycSig, uint256 kycDeadline, bytes32 jurisdictionHash) payable",
   "function buyWithStable(address token, uint256 amount, uint256 minBsyOut, bytes kycSig, uint256 kycDeadline, bytes32 jurisdictionHash)",
   "function claim()",
   "function claimRefund()",
-  "function kycDigest(address buyer, uint256 deadline, bytes32 jurisdictionHash) view returns (bytes32)",
+  "function kycDigest(address buyer, uint256 nonce, uint256 deadline, bytes32 jurisdictionHash) view returns (bytes32)",
+  "function kycNonce(address) view returns (uint256)",
 ]);
 
 export const ERC20_ABI = parseAbi([
@@ -134,19 +135,20 @@ export class PresaleClient {
   }
 
   async getPurchase(account: Address) {
-    const [bsyAllocated, usdPaid, claimed, ethPaid, refunded] = await this.publicClient.readContract({
-      address: this.address,
-      abi: PRESALE_ABI,
-      functionName: "purchases",
-      args: [account],
-    });
+    const [bsyAllocated, usdPaid, claimed, ethPaid, allocationVoided, ethRefunded] =
+      await this.publicClient.readContract({
+        address: this.address,
+        abi: PRESALE_ABI,
+        functionName: "purchases",
+        args: [account],
+      });
     const claimable = await this.publicClient.readContract({
       address: this.address,
       abi: PRESALE_ABI,
       functionName: "claimableOf",
       args: [account],
     });
-    return { bsyAllocated, usdPaid, claimed, ethPaid, refunded, claimable };
+    return { bsyAllocated, usdPaid, claimed, ethPaid, allocationVoided, ethRefunded, claimable };
   }
 
   async buyWithEth(

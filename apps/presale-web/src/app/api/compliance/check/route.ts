@@ -1,29 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { blockedCountries } from "@/lib/config";
+import { countryFromHeaders } from "@/lib/compliance/provider";
 
 /**
- * Stub geo / jurisdiction check.
- * Production: replace with a real geo-IP + KYC provider (e.g. Sumsub, Persona).
- * Client may pass ?country=XX for local testing; otherwise uses CF-IPCountry / Accept-Language heuristic.
+ * Geo / jurisdiction check. Country is derived from edge headers only
+ * (cf-ipcountry / x-vercel-ip-country). Query overrides are ignored (BSY-C2).
  */
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const override = url.searchParams.get("country")?.toUpperCase();
-  const headerCountry =
-    req.headers.get("cf-ipcountry") ||
-    req.headers.get("x-vercel-ip-country") ||
-    req.headers.get("x-country-code") ||
-    "";
-  const country = (override || headerCountry || "XX").toUpperCase();
+  const country = countryFromHeaders(req.headers);
   const blocked = blockedCountries.includes(country);
   const kycRequired = process.env.KYC_REQUIRED === "true";
+  const providerConfigured =
+    (process.env.KYC_PROVIDER || "").length > 0 && !!process.env.COMPLIANCE_SIGNER_KEY;
 
   return NextResponse.json({
     ok: true,
     country,
     blocked,
     kycRequired,
+    providerConfigured,
     blockedList: blockedCountries,
-    notice: "Stub compliance API — not production grade.",
   });
 }

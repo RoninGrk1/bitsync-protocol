@@ -134,10 +134,19 @@ export function PresaleWidget() {
           "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex,
       };
       if (geo.kycRequired) {
+        if (!geo.providerConfigured) {
+          throw new Error("KYC provider not configured on server");
+        }
+        const nonce = await publicClient!.readContract({
+          address: addresses.presale,
+          abi: [{ name: "kycNonce", type: "function", stateMutability: "view", inputs: [{ name: "account", type: "address" }], outputs: [{ type: "uint256" }] }],
+          functionName: "kycNonce",
+          args: [address],
+        } as never) as bigint;
         const signed = await fetch("/api/compliance/kyc", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ buyer: address, country: geo.country }),
+          body: JSON.stringify({ buyer: address, nonce: nonce.toString() }),
         }).then((r) => r.json());
         if (!signed.ok) throw new Error(signed.error || "KYC signer unavailable");
         kyc = {

@@ -10,20 +10,28 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { blockedCountries } from "@/lib/config";
+import { countryFromHeaders, getKycProvider } from "@/lib/compliance/provider";
 
 /**
- * Stub EIP-712 KYC approval signer for local demos.
- * Uses ANVIL_COMPLIANCE_KEY (defaults to Anvil account #0) — never use in production.
- * Domain name must match BSYPresale EIP712("BitSync Presale", "1").
+ * EIP-712 KYC approval signer.
+ * - Signer key: COMPLIANCE_SIGNER_KEY (server-only; no Anvil default).
+ * - Country: from request headers only.
+ * - Provider attestation required (fail closed when unconfigured).
+ * - Nonce must match on-chain kycNonce(buyer).
  */
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as { buyer?: string; country?: string };
+    const body = (await req.json()) as {
+      buyer?: string;
+      nonce?: string | number;
+      providerToken?: string;
+    };
     const buyer = body.buyer as Address | undefined;
-    const country = (body.country || "XX").toUpperCase();
     if (!buyer || !/^0x[a-fA-F0-9]{40}$/.test(buyer)) {
       return NextResponse.json({ ok: false, error: "Invalid buyer address" }, { status: 400 });
     }
+
+    const country = countryFromHeaders(req.headers);
     if (blockedCountries.includes(country)) {
       return NextResponse.json(
         { ok: false, error: `Jurisdiction blocked: ${country}` },
@@ -31,11 +39,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const pk = (process.env.ANVIL_COMPLIANCE_KEY ||
-      "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80") as Hex;
+    const pk = process.env.COMPLIANCE_SIGNER_KEY as Hex | undefined;
+    if (!pk || !/^0x[a-fA-F0-9]{64}$/.test(pk)) {
+      return NextResponse.json(
+        { ok: false, error: "COMPLIANCE_SIGNER_KEY not configured" },
+        { status: 503 },
+      );
+    }
+
+    const provider = getKycProvider();
+    let attestation;
+    try {
+      attestation = await provider.attest({
+        buyer,
+        country,
+        providerToken: body.providerToken,
+      });
+    } catch (e: unknown) {
+      return NextResponse.json(
+        { ok: false, error: e instanceof Error ? e.message : String(e) },
+        { status: 503 },
+      );
+    }
+    if (!attestation.approved) {
+      return NextResponse.json({ ok: false, error: "KYC not approved" }, { status: 403 });
+    }
+
     const account = privateKeyToAccount(pk);
     const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
     const jurisdictionHash = keccak256(toBytes(country));
+    const nonce = BigInt(body.nonce ?? 0);
 
     const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 31337);
     const rpc = process.env.NEXT_PUBLIC_RPC_URL || "http://127.0.0.1:8545";
@@ -49,12 +82,7 @@ export async function POST(req: NextRequest) {
       rpcUrls: { default: { http: [rpc] } },
     };
 
-    const client = createWalletClient({
-      account,
-      chain,
-      transport: http(rpc),
-    });
-
+    const client = createWalletClient({ account, chain, transport: http(rpc) });
     const signature = await client.signTypedData({
       account,
       domain: {
@@ -66,25 +94,24 @@ export async function POST(req: NextRequest) {
       types: {
         KycApproval: [
           { name: "buyer", type: "address" },
+          { name: "nonce", type: "uint256" },
           { name: "deadline", type: "uint256" },
           { name: "jurisdictionHash", type: "bytes32" },
         ],
       },
       primaryType: "KycApproval",
-      message: {
-        buyer,
-        deadline,
-        jurisdictionHash,
-      },
+      message: { buyer, nonce, deadline, jurisdictionHash },
     });
 
     return NextResponse.json({
       ok: true,
       signature,
       deadline: deadline.toString(),
+      nonce: nonce.toString(),
       jurisdictionHash,
       signer: account.address,
-      notice: "Stub KYC signer — replace with licensed provider.",
+      country,
+      providerRef: attestation.providerRef,
     });
   } catch (e: unknown) {
     return NextResponse.json(
