@@ -13,3 +13,7 @@ bootstrap_peers = [
   "/dns4/node2/tcp/4001",
   "/dns4/node3/tcp/4001"
 ]
+
+# Persistent operator secp256k1 secret (32-byte hex). Required in production (BSY-H7).
+# operator_key_path = "secrets/node0.key"
+# signed_state_dir = "data/node0"

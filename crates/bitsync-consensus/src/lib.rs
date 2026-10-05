@@ -189,11 +189,10 @@ pub fn aggregate(
     // MAD == 0 means a strict majority sits on the exact median. Keep only that
     // median value (band 0) so a lone Byzantine outlier is rejected. When all
     // observations already equal the median they remain accepted.
-    let band = if mad_v == 0 {
-        0
-    } else {
-        ((cfg.mad_k * mad_v as f64).ceil()) as i128
-    };
+    // Never collapse the band to 0: with an even observation count the lower
+    // median of absolute deviations can be 0 even when honest prices differ by
+    // a tick (BSY-H3). A minimum band of 1 keeps near-median honest values.
+    let band = ((cfg.mad_k * mad_v as f64).ceil() as i128).max(1);
 
     let mut accepted = Vec::new();
     let mut rejected = Vec::new();
@@ -250,7 +249,8 @@ pub fn report_from_aggregate(
 
 /// Does `weight` meet a stake quorum of `2/3` of `total`?
 pub fn stake_quorum_met(weight: u128, total: u128) -> bool {
-    total > 0 && weight.saturating_mul(3) >= total.saturating_mul(2)
+    // Strictly greater than 2/3 — matches OracleAggregator (signed*3 > total*2).
+    total > 0 && weight.saturating_mul(3) > total.saturating_mul(2)
 }
 
 #[cfg(test)]
@@ -325,8 +325,24 @@ mod tests {
 
     #[test]
     fn stake_quorum() {
-        // Strict ≥ 2/3: 66/100 → 198 < 200; 67/100 → 201 ≥ 200.
+        // Strict > 2/3: 2/3 exact fails; just above passes.
         assert!(stake_quorum_met(67, 100));
         assert!(!stake_quorum_met(66, 100));
+        assert!(!stake_quorum_met(2, 3)); // exact 2/3 rejected (matches on-chain)
+    }
+
+    #[test]
+    fn honest_even_committee_with_tick_noise_finalises() {
+        // BSY-H3 regression: four honest equal-stake prices that differ by a tick.
+        let c = Committee::from_n(4);
+        let v = vec![
+            obs(1, 1, 100),
+            obs(2, 1, 100),
+            obs(3, 1, 101),
+            obs(4, 1, 102),
+        ];
+        let agg = aggregate(&c, &AggregationConfig::default(), &v).expect("must finalise");
+        assert!(agg.accepted.len() >= 3);
+        assert!(agg.price >= 100 && agg.price <= 102);
     }
 }

@@ -1,9 +1,10 @@
 //! BitSync oracle node entrypoint.
 
 use anyhow::{Context, Result};
-use bitsync_crypto::{Amount, SoftwareSigner, BSY_SYMBOL, MAX_SUPPLY_BASE};
+use bitsync_crypto::{Amount, Signer, SoftwareSigner, BSY_SYMBOL, MAX_SUPPLY_BASE};
 use bitsync_node::config::NodeConfig;
 use bitsync_node::engine::{default_source, NodeEngine};
+use bitsync_node::keystore;
 use bitsync_node::libp2p_driver;
 use bitsync_node::metrics::NodeMetrics;
 use bitsync_node::network::{InMemoryMesh, Libp2pNetwork, Network};
@@ -66,7 +67,13 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(NodeMetrics::register(&registry)?);
     let archive: Arc<dyn Archive> = Arc::new(MemoryArchive::new());
     let source = default_source(&cfg.node_id);
-    let signer = Arc::new(SoftwareSigner::random());
+    let key_path = cfg.operator_key_path.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "operator_key_path is required (set in config TOML).              Refusing to generate an ephemeral key (BSY-H7)."
+        )
+    })?;
+    let signer = Arc::new(keystore::load_signer(std::path::Path::new(key_path))?);
+    info!(address = %signer.address(), "loaded persistent operator key");
 
     let metrics_addr: SocketAddr = cfg.metrics_listen.parse()?;
     let reg = registry.clone();

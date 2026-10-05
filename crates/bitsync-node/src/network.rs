@@ -51,7 +51,7 @@ impl InMemoryMesh {
     /// Register a peer and return its network handle.
     pub fn join(self: &Arc<Self>, id: impl Into<PeerId>) -> InMemoryNetwork {
         let id = id.into();
-        let (tx, _rx) = broadcast::channel(256);
+        let (tx, _rx) = broadcast::channel(4096);
         self.peers.insert(id.clone(), tx);
         InMemoryNetwork {
             id,
@@ -100,7 +100,16 @@ impl Network for InMemoryNetwork {
             .expect("peer registered")
             .clone();
         let rx = tx.subscribe();
-        Box::pin(BroadcastStream::new(rx).filter_map(|r| r.ok()))
+        Box::pin(BroadcastStream::new(rx).filter_map(|r| match r {
+            Ok(ev) => Some(ev),
+            Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+                tracing::warn!(
+                    skipped = n,
+                    "gossip subscriber lagged; applying backpressure"
+                );
+                None
+            }
+        }))
     }
 }
 
@@ -144,7 +153,7 @@ impl Libp2pNetwork {
         mpsc::UnboundedReceiver<GossipMessage>,
         broadcast::Sender<NetworkEvent>,
     ) {
-        let (inbound_tx, _) = broadcast::channel(256);
+        let (inbound_tx, _) = broadcast::channel(4096);
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         (
             Self {
@@ -178,6 +187,54 @@ impl Network for Libp2pNetwork {
     }
 
     fn subscribe(&self) -> Pin<Box<dyn Stream<Item = NetworkEvent> + Send>> {
-        Box::pin(BroadcastStream::new(self.inbound_tx.subscribe()).filter_map(|r| r.ok()))
+        Box::pin(
+            BroadcastStream::new(self.inbound_tx.subscribe()).filter_map(|r| match r {
+                Ok(ev) => Some(ev),
+                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+                    tracing::warn!(skipped = n, "libp2p inbound lagged; applying backpressure");
+                    None
+                }
+            }),
+        )
+    }
+}
+
+/// Per-peer rate limiter + content dedupe for inbound gossip (BSY-H6).
+#[derive(Default)]
+pub struct InboundGate {
+    /// peer -> (window_start_ms, count)
+    peers: dashmap::DashMap<PeerId, (u64, u32)>,
+    /// recent message fingerprints
+    seen: dashmap::DashMap<u64, ()>,
+}
+
+impl InboundGate {
+    /// Max messages accepted per peer per second.
+    pub const PER_PEER_PER_SEC: u32 = 32;
+
+    /// Returns true if the message should be processed.
+    pub fn admit(&self, peer: &str, fingerprint: u64) -> bool {
+        if self.seen.insert(fingerprint, ()).is_some() {
+            return false; // duplicate
+        }
+        // Cap seen map growth.
+        if self.seen.len() > 10_000 {
+            self.seen.clear();
+            self.seen.insert(fingerprint, ());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut entry = self.peers.entry(peer.to_string()).or_insert((now, 0));
+        if entry.0 != now {
+            *entry = (now, 1);
+            return true;
+        }
+        if entry.1 >= Self::PER_PEER_PER_SEC {
+            return false;
+        }
+        entry.1 += 1;
+        true
     }
 }

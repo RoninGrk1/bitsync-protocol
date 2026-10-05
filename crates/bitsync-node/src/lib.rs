@@ -8,10 +8,12 @@
 
 pub mod config;
 pub mod engine;
+pub mod keystore;
 pub mod libp2p_driver;
 pub mod metrics;
 pub mod network;
 pub mod protocol;
+pub mod signed_state;
 
 pub use config::NodeConfig;
 pub use engine::{Behaviour, NodeEngine, RoundOutcome};

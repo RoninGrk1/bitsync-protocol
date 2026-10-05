@@ -9,3 +9,7 @@ verifying_contract = "0x1111111111111111111111111111111111111111"
 operator_stake = 1000000000000
 # Omit `listen` for solo / --once (in-memory mesh). Devnet configs set listen + bootstrap_peers.
 bootstrap_peers = []
+
+# Persistent operator secp256k1 secret (32-byte hex). Required in production (BSY-H7).
+# operator_key_path = "secrets/node0.key"
+# signed_state_dir = "data/node0"

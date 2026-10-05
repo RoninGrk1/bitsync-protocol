@@ -38,6 +38,13 @@ pub struct NodeConfig {
     /// Bootstrap peer multiaddrs for the libp2p swarm.
     #[serde(default)]
     pub bootstrap_peers: Vec<String>,
+    /// Path to a 32-byte hex secp256k1 operator secret (file). Required for non-test runs.
+    /// When unset, the binary refuses to start (BSY-H7); tests use SoftwareSigner::random().
+    #[serde(default)]
+    pub operator_key_path: Option<String>,
+    /// Directory used to persist last-signed (feed, round) digests across restarts (BSY-H5).
+    #[serde(default)]
+    pub signed_state_dir: Option<String>,
 }
 
 fn default_feeds() -> Vec<String> {
@@ -79,6 +86,8 @@ impl Default for NodeConfig {
             operator_stake: default_stake(),
             listen: None,
             bootstrap_peers: Vec::new(),
+            operator_key_path: None,
+            signed_state_dir: None,
         }
     }
 }

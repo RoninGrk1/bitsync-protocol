@@ -2,8 +2,10 @@
 
 use crate::config::NodeConfig;
 use crate::metrics::NodeMetrics;
+use crate::network::InboundGate;
 use crate::network::{Network, NetworkEvent};
 use crate::protocol::{GossipMessage, SignedObservation, SignedReportShare};
+use crate::signed_state::SignedStateStore;
 use anyhow::{bail, Result};
 use bitsync_consensus::{
     aggregate, report_from_aggregate, stake_quorum_met, AggregationConfig, Committee,
@@ -81,6 +83,10 @@ pub struct NodeEngine<N: Network> {
     pub behaviour: Behaviour,
     /// Known committee operators → stake. Must include self.
     pub committee_stakes: HashMap<Address, u128>,
+    /// Inbound gossip rate-limit + dedupe (BSY-H6).
+    pub inbound_gate: InboundGate,
+    /// Persist last-signed observation digests (BSY-H5).
+    pub signed_state: SignedStateStore,
 }
 
 impl<N: Network> NodeEngine<N> {
@@ -94,6 +100,8 @@ impl<N: Network> NodeEngine<N> {
     ) -> Self {
         let mut committee_stakes = HashMap::new();
         committee_stakes.insert(signer.address(), cfg.operator_stake as u128);
+        let signed_state =
+            SignedStateStore::open(cfg.signed_state_dir.as_deref()).expect("signed state store");
         Self {
             cfg,
             network,
@@ -103,6 +111,8 @@ impl<N: Network> NodeEngine<N> {
             metrics: None,
             behaviour: Behaviour::Honest,
             committee_stakes,
+            inbound_gate: InboundGate::default(),
+            signed_state,
         }
     }
 
@@ -202,6 +212,17 @@ impl<N: Network> NodeEngine<N> {
             match tokio::time::timeout(remaining, inbound.next()).await {
                 Ok(Some(NetworkEvent { message, .. })) => {
                     if let GossipMessage::Observation(so) = message {
+                        let fp = {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            so.operator.0.hash(&mut h);
+                            so.observation.round.hash(&mut h);
+                            so.observation.price.hash(&mut h);
+                            h.finish()
+                        };
+                        if !self.inbound_gate.admit("gossip", fp) {
+                            continue;
+                        }
                         if so.observation.feed_id == feed_id
                             && so.observation.round == round
                             && self.verify_observation(&so, &domain).is_ok()
@@ -241,7 +262,22 @@ impl<N: Network> NodeEngine<N> {
             }
         };
 
-        let report = report_from_aggregate(feed_id, round, timestamp, &agg);
+        // BSY-H4: report timestamp is the median of accepted observation timestamps
+        // (deterministic across honest nodes), not each node's wall clock.
+        let mut ts: Vec<u64> = agg
+            .accepted
+            .iter()
+            .filter_map(|op| observations.get(op).map(|so| so.observation.timestamp))
+            .collect();
+        ts.sort_unstable();
+        let report_ts = if ts.is_empty() {
+            timestamp
+        } else if ts.len() % 2 == 0 {
+            ts[ts.len() / 2 - 1]
+        } else {
+            ts[ts.len() / 2]
+        };
+        let report = report_from_aggregate(feed_id, round, report_ts, &agg);
 
         // --- Phase 3: co-sign the aggregate report --------------------------------
         let mut shares: HashMap<Address, SignedReportShare> = HashMap::new();
@@ -352,6 +388,13 @@ impl<N: Network> NodeEngine<N> {
             round,
         };
         let digest = observation.digest(domain);
+        // BSY-H5: never sign a different observation for the same (feed, round).
+        if !self
+            .signed_state
+            .check_and_record_observation(&feed_id, round, &digest)?
+        {
+            bail!("refusing to equivocate: already signed a different observation for feed/round");
+        }
         let signature = self.signer.sign_digest(&digest).await?;
         Ok(SignedObservation {
             operator: self.signer.address(),
