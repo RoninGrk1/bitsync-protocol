@@ -29,6 +29,16 @@ library BitSyncTypes {
         "Observation(bytes32 feedId,int256 price,uint256 confidence,uint64 timestamp,uint64 round)"
     );
 
+
+    /// @notice Canonical feed id: UTF-8 label left-aligned in bytes32, zero-padded (matches Rust/TS).
+    function feedIdFromLabel(string memory label) internal pure returns (bytes32 out) {
+        bytes memory b = bytes(label);
+        require(b.length != 0 && b.length <= 32, "BitSyncTypes: label");
+        assembly ("memory-safe") {
+            out := mload(add(b, 32))
+        }
+    }
+
     function structHash(Report memory r) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(REPORT_TYPEHASH, r.feedId, r.price, r.confidence, r.timestamp, r.round)

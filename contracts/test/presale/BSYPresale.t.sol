@@ -45,6 +45,7 @@ contract BSYPresaleTest is Test {
         sale = new BSYPresale(address(bsy), treasury, address(this), address(feed));
         sale.grantRole(sale.GUARDIAN_ROLE(), guardian);
         sale.grantRole(sale.COMPLIANCE_ROLE(), compliance);
+        assertFalse(sale.hasRole(sale.COMPLIANCE_ROLE(), address(this)));
 
         BSYPresale.SaleConfig memory cfg = BSYPresale.SaleConfig({
             start: start,
@@ -75,7 +76,8 @@ contract BSYPresaleTest is Test {
     function _kyc(address who) internal view returns (bytes memory sig, uint256 deadline, bytes32 jur) {
         deadline = block.timestamp + 1 days;
         jur = keccak256("NON_BLOCKED");
-        bytes32 digest = sale.kycDigest(who, deadline, jur);
+        uint256 nonce = sale.kycNonce(who);
+        bytes32 digest = sale.kycDigest(who, nonce, deadline, jur);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(compliancePk, digest);
         sig = abi.encodePacked(r, s, v);
     }
@@ -108,7 +110,7 @@ contract BSYPresaleTest is Test {
         uint256 ethIn = sale.quoteEth(1_000 * UNIT);
         vm.prank(buyer);
         sale.buyWithEth{value: ethIn}(1_000 * UNIT, sig, dl, jur);
-        (uint256 alloc, uint256 usd,, uint256 ethPaid,) = sale.purchases(buyer);
+        (uint256 alloc, uint256 usd,, uint256 ethPaid,,) = sale.purchases(buyer);
         assertEq(alloc, 1_000 * UNIT);
         assertEq(usd, 200 * UNIT);
         assertEq(ethPaid, ethIn);
@@ -123,19 +125,19 @@ contract BSYPresaleTest is Test {
         usdc.approve(address(sale), 200e6);
         sale.buyWithStable(address(usdc), 200e6, 1_000 * UNIT, sig, dl, jur);
         vm.stopPrank();
-        (uint256 alloc,,,,) = sale.purchases(buyer);
+        (uint256 alloc,,,,,) = sale.purchases(buyer);
         assertEq(alloc, 1_000 * UNIT);
         assertEq(sale.stablePaid(buyer, address(usdc)), 200e6);
     }
 
     function test_NeverExceedsAllocation() public {
-        _open();
-        // Raise max so we can attempt to overbuy
+        // Raise max before sale start (config locks at start).
         BSYPresale.SaleConfig memory cfg = sale.getConfig();
         cfg.maxBuyUsd = type(uint128).max;
         cfg.softCapBsy = 0;
         cfg.kycRequired = false;
         sale.setConfig(cfg);
+        _open();
 
         uint256 rem = sale.remaining();
         uint256 usd = sale.quoteUsd(rem);
@@ -157,13 +159,13 @@ contract BSYPresaleTest is Test {
     }
 
     function testFuzz_NeverSellsMoreThanAllocation(uint256 usdSeed, uint8 nBuys) public {
-        _open();
         BSYPresale.SaleConfig memory cfg = sale.getConfig();
         cfg.maxBuyUsd = type(uint128).max;
         cfg.minBuyUsd = 1;
         cfg.softCapBsy = 0;
         cfg.kycRequired = false;
         sale.setConfig(cfg);
+        _open();
 
         nBuys = uint8(bound(nBuys, 1, 20));
         address who = buyer;
@@ -230,9 +232,10 @@ contract BSYPresaleTest is Test {
         vm.prank(buyer);
         sale.claimRefund();
         assertEq(buyer.balance, before + ethIn);
-        (uint256 alloc,,,, bool refunded) = sale.purchases(buyer);
+        (uint256 alloc,,,, bool voided, bool ethRefunded) = sale.purchases(buyer);
         assertEq(alloc, 0);
-        assertTrue(refunded);
+        assertTrue(voided);
+        assertTrue(ethRefunded);
     }
 
     function test_VestingClaim() public {
@@ -297,13 +300,62 @@ contract BSYPresaleTest is Test {
     }
 
     function test_MinMaxWallet() public {
-        _open();
-        BSYPresale.SaleConfig memory cfg = sale.getConfig();
+                BSYPresale.SaleConfig memory cfg = sale.getConfig();
         cfg.kycRequired = false;
         sale.setConfig(cfg);
+        _open();
         // 0.001 ETH at $2000 = $2 < $10 min
         vm.prank(buyer);
         vm.expectRevert(BSYPresale.BelowMin.selector);
         sale.buyWithEth{value: 0.001 ether}(0, "", 0, bytes32(0));
     }
+    /// BSY-C1 regression: mixed ETH+stable soft-cap refund returns both assets.
+    function test_Audit_MixedPaymentRefundBothAssets() public {
+        _open();
+        (bytes memory sig, uint256 dl, bytes32 jur) = _kyc(buyer);
+        vm.startPrank(buyer);
+        sale.buyWithEth{value: 1 ether}(0, sig, dl, jur);
+        (sig, dl, jur) = _kyc(buyer); // new nonce after first buy consumed one
+        usdc.approve(address(sale), 1_000e6);
+        sale.buyWithStable(address(usdc), 1_000e6, 0, sig, dl, jur);
+        vm.stopPrank();
+
+        vm.warp(end);
+        sale.finalize();
+        assertTrue(sale.softCapFailed());
+
+        uint256 ethBefore = buyer.balance;
+        uint256 usdcBefore = usdc.balanceOf(buyer);
+        vm.startPrank(buyer);
+        sale.claimRefundStable(address(usdc));
+        sale.claimRefund(); // ETH still claimable after stable refund
+        vm.stopPrank();
+        assertEq(buyer.balance, ethBefore + 1 ether);
+        assertEq(usdc.balanceOf(buyer), usdcBefore + 1_000e6);
+        assertEq(address(sale).balance, 0);
+        vm.expectRevert(BSYPresale.SoftCapFailedPath.selector);
+        sale.withdrawEth();
+    }
+
+    /// BSY-H2 regression: setConfig reverts once the sale has started.
+    function test_Audit_ConfigLockedAfterStart() public {
+        _open();
+        BSYPresale.SaleConfig memory c = sale.getConfig();
+        c.softCapBsy = c.softCapBsy + 1;
+        vm.expectRevert(BSYPresale.ConfigLocked.selector);
+        sale.setConfig(c);
+    }
+
+    /// BSY-C2/M7: KYC nonce is consumed; replaying the same sig fails.
+    function test_Audit_KycNonceConsumed() public {
+        _open();
+        (bytes memory sig, uint256 dl, bytes32 jur) = _kyc(buyer);
+        uint256 ethIn = sale.quoteEth(1_000 * UNIT);
+        vm.prank(buyer);
+        sale.buyWithEth{value: ethIn}(1_000 * UNIT, sig, dl, jur);
+        vm.prank(buyer);
+        vm.expectRevert(BSYPresale.InvalidKyc.selector);
+        sale.buyWithEth{value: ethIn}(0, sig, dl, jur);
+    }
+
 }

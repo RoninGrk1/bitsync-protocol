@@ -25,7 +25,7 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     uint256 public constant PRESALE_ALLOCATION = 6_300_000 * 10 ** 8;
     uint256 public constant USD_SCALE = 1e8;
     bytes32 public constant KYC_TYPEHASH =
-        keccak256("KycApproval(address buyer,uint256 deadline,bytes32 jurisdictionHash)");
+        keccak256("KycApproval(address buyer,uint256 nonce,uint256 deadline,bytes32 jurisdictionHash)");
 
     struct SaleConfig {
         uint64 start;
@@ -46,7 +46,8 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         uint256 usdPaid;
         uint256 claimed;
         uint256 ethPaid;
-        bool refunded;
+        bool allocationVoided; // BSY allocation reversed on soft-cap refund (once)
+        bool ethRefunded; // ETH proceeds returned (independent of stables)
     }
 
     IERC20 public immutable bsy;
@@ -65,6 +66,8 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     mapping(address => uint8) public stableDecimals;
     mapping(address => Purchase) public purchases;
     mapping(address => mapping(address => uint256)) public stablePaid;
+    /// @notice Per-buyer KYC approval nonce (included in EIP-712; increments on use).
+    mapping(address => uint256) public kycNonce;
 
     event SaleConfigured(SaleConfig config);
     event StableAllowlisted(address indexed token, uint8 decimals, bool allowed);
@@ -105,6 +108,8 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     error ZeroAmount();
     error TransferFailed();
     error Slippage();
+    error ConfigLocked();
+    error BadKycNonce();
 
     constructor(address bsy_, address treasury_, address admin, address ethUsdFeed_)
         EIP712("BitSync Presale", "1")
@@ -115,13 +120,15 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         ethUsdFeed = IAggregatorV3(ethUsdFeed_);
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(GOVERNANCE_ROLE, admin);
-        _grantRole(COMPLIANCE_ROLE, admin);
+        // COMPLIANCE_ROLE is granted explicitly to the designated signer (see Deploy.s.sol).
     }
 
     // ------------------------------------------------------------------ admin
 
     function setConfig(SaleConfig calldata c) external onlyRole(GOVERNANCE_ROLE) {
         if (finalized) revert AlreadyFinalized();
+        // Freeze economic terms once the configured start time has been reached.
+        if (config.start != 0 && block.timestamp >= config.start) revert ConfigLocked();
         if (c.start == 0 || c.end <= c.start || c.tge < c.end) revert InvalidConfig();
         if (c.priceUsdPerBsy == 0 || c.maxBuyUsd < c.minBuyUsd) revert InvalidConfig();
         if (c.tgeUnlockBps > 10_000 || c.softCapBsy > PRESALE_ALLOCATION) revert InvalidConfig();
@@ -205,17 +212,19 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         SaleConfig memory c = config;
         if (block.timestamp < c.tge) return 0;
         Purchase memory p = purchases[account];
-        if (p.refunded || p.bsyAllocated == 0) return 0;
+        if (p.allocationVoided || p.bsyAllocated == 0) return 0;
         uint256 vested = _vestedAmount(p.bsyAllocated, c);
         return vested - p.claimed;
     }
 
-    function kycDigest(address buyer, uint256 deadline, bytes32 jurisdictionHash)
+    function kycDigest(address buyer, uint256 nonce, uint256 deadline, bytes32 jurisdictionHash)
         external
         view
         returns (bytes32)
     {
-        return _hashTypedDataV4(keccak256(abi.encode(KYC_TYPEHASH, buyer, deadline, jurisdictionHash)));
+        return _hashTypedDataV4(
+            keccak256(abi.encode(KYC_TYPEHASH, buyer, nonce, deadline, jurisdictionHash))
+        );
     }
 
     // ------------------------------------------------------------------- buy
@@ -286,19 +295,13 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
     function claimRefund() external nonReentrant {
         if (!finalized || !softCapFailed) revert SoftCapNotFailed();
         Purchase storage p = purchases[msg.sender];
-        if (p.refunded || (p.bsyAllocated == 0 && p.ethPaid == 0)) revert NothingToRefund();
+        if (p.ethRefunded || p.ethPaid == 0) revert NothingToRefund();
         uint256 ethAmt = p.ethPaid;
-        uint256 bsyVoided = p.bsyAllocated;
-        p.refunded = true;
         p.ethPaid = 0;
-        if (bsyVoided > 0) {
-            totalSold -= bsyVoided;
-            p.bsyAllocated = 0;
-        }
-        if (ethAmt > 0) {
-            (bool ok,) = msg.sender.call{value: ethAmt}("");
-            if (!ok) revert TransferFailed();
-        }
+        p.ethRefunded = true;
+        uint256 bsyVoided = _voidAllocation(p);
+        (bool ok,) = msg.sender.call{value: ethAmt}("");
+        if (!ok) revert TransferFailed();
         emit Refunded(msg.sender, bsyVoided, ethAmt);
     }
 
@@ -308,14 +311,19 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         if (amt == 0) revert NothingToRefund();
         stablePaid[msg.sender][token] = 0;
         Purchase storage p = purchases[msg.sender];
-        if (!p.refunded && p.bsyAllocated > 0) {
-            totalSold -= p.bsyAllocated;
-            emit Refunded(msg.sender, p.bsyAllocated, 0);
-            p.bsyAllocated = 0;
-            p.refunded = true;
-        }
+        uint256 bsyVoided = _voidAllocation(p);
+        if (bsyVoided > 0) emit Refunded(msg.sender, bsyVoided, 0);
         IERC20(token).safeTransfer(msg.sender, amt);
         emit StableRefunded(msg.sender, token, amt);
+    }
+
+    /// @dev Reverse BSY allocation at most once across mixed ETH/stable refunds.
+    function _voidAllocation(Purchase storage p) internal returns (uint256 bsyVoided) {
+        if (p.allocationVoided || p.bsyAllocated == 0) return 0;
+        bsyVoided = p.bsyAllocated;
+        totalSold -= bsyVoided;
+        p.bsyAllocated = 0;
+        p.allocationVoided = true;
     }
 
     function claim() external nonReentrant whenNotPaused {
@@ -323,7 +331,7 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
         if (softCapFailed) revert SoftCapFailedPath();
         if (block.timestamp < config.tge) revert SaleNotEnded();
         Purchase storage p = purchases[msg.sender];
-        if (p.refunded || p.bsyAllocated == 0) revert NothingToClaim();
+        if (p.allocationVoided || p.bsyAllocated == 0) revert NothingToClaim();
         uint256 vested = _vestedAmount(p.bsyAllocated, config);
         uint256 amount = vested - p.claimed;
         if (amount == 0) revert NothingToClaim();
@@ -374,13 +382,16 @@ contract BSYPresale is AccessControl, Pausable, ReentrancyGuard, EIP712 {
 
     function _checkKyc(address buyer, bytes calldata sig, uint256 deadline, bytes32 jurisdictionHash)
         internal
-        view
     {
         if (!config.kycRequired) return;
         if (block.timestamp > deadline || sig.length != 65) revert InvalidKyc();
-        bytes32 digest =
-            _hashTypedDataV4(keccak256(abi.encode(KYC_TYPEHASH, buyer, deadline, jurisdictionHash)));
+        uint256 nonce = kycNonce[buyer];
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(KYC_TYPEHASH, buyer, nonce, deadline, jurisdictionHash))
+        );
         if (!hasRole(COMPLIANCE_ROLE, ECDSA.recover(digest, sig))) revert InvalidKyc();
+        // Consume nonce so the same approval cannot be replayed (BSY-C2 / M7).
+        kycNonce[buyer] = nonce + 1;
     }
 
     function _ethUsd() internal view returns (uint256 price, uint8 dec) {

@@ -11,6 +11,7 @@ import {FeedRegistry} from "../src/FeedRegistry.sol";
 import {BitSyncTimelock} from "../src/BitSyncGovernor.sol";
 import {BSYPresale} from "../src/presale/BSYPresale.sol";
 import {IAggregatorV3} from "../src/presale/IAggregatorV3.sol";
+import {BitSyncTypes} from "../src/BitSyncTypes.sol";
 
 /// @notice Deploys and fully wires the BitSync contract suite.
 /// @dev Final state (asserted in test/Deploy.t.sol):
@@ -25,6 +26,7 @@ contract DeployScript is Script {
     struct Config {
         address deployer; // account whose calls create/wire the contracts
         address multisig;
+        address compliance; // COMPLIANCE_ROLE holder for KYC (not deployer)
         uint256 timelockDelay;
         uint64 unbondingPeriod;
         uint256 minStake;
@@ -46,9 +48,18 @@ contract DeployScript is Script {
     }
 
     function defaultConfig(address deployer, address multisig) public pure returns (Config memory) {
+        return defaultConfig(deployer, multisig, multisig);
+    }
+
+    function defaultConfig(address deployer, address multisig, address compliance)
+        public
+        pure
+        returns (Config memory)
+    {
         return Config({
             deployer: deployer,
             multisig: multisig,
+            compliance: compliance,
             timelockDelay: 2 days,
             unbondingPeriod: 7 days,
             minStake: 10_000 * 10 ** 8, // 10,000 BSY (8 decimals)
@@ -63,8 +74,9 @@ contract DeployScript is Script {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(pk);
         address multisig = vm.envOr("MULTISIG", deployer);
+        address compliance = vm.envOr("COMPLIANCE", multisig);
         vm.startBroadcast(pk);
-        d = deploy(defaultConfig(deployer, multisig));
+        d = deploy(defaultConfig(deployer, multisig, compliance));
         vm.stopBroadcast();
 
         console2.log("Timelock ", address(d.timelock));
@@ -95,21 +107,24 @@ contract DeployScript is Script {
         // Presale: 15% = 6.3M BSY funded from timelock-held genesis supply.
         // Requires ethUsdFeed; skipped when unset (unit tests that don't need it).
         if (c.ethUsdFeed != address(0)) {
+            require(c.compliance != address(0), "Deploy: zero compliance");
             d.presale = new BSYPresale(address(d.bsy), tl, c.deployer, c.ethUsdFeed);
             d.presale.grantRole(d.presale.GUARDIAN_ROLE(), c.multisig);
-            d.presale.grantRole(d.presale.COMPLIANCE_ROLE(), c.multisig);
-            // Fund from timelock: deployer cannot move TL funds directly. In the
-            // script path the deployer still holds BSY only on local anvil demos
-            // that mint-to-deployer; production funding is a timelock ops follow-up.
-            // For local demo / Deploy.t with feed set, the test funds explicitly.
+            d.presale.grantRole(d.presale.COMPLIANCE_ROLE(), c.compliance);
             _handOver(address(d.presale), d.presale.GOVERNANCE_ROLE(), tl, c.deployer);
             _handOverAdmin(address(d.presale), tl, c.deployer);
+            // Deployer must not retain COMPLIANCE (BSY-C3).
+            if (d.presale.hasRole(d.presale.COMPLIANCE_ROLE(), c.deployer)) {
+                IAccessControlLike(address(d.presale)).renounceRole(
+                    d.presale.COMPLIANCE_ROLE(), c.deployer
+                );
+            }
         }
 
         // --- wiring performed while the deployer still holds admin roles
         d.staking.setStakeObserver(address(d.fees));
         d.staking.grantRole(d.staking.SLASHER_ROLE(), address(d.slashing));
-        bytes32 btcUsd = keccak256("BTC/USD");
+        bytes32 btcUsd = bytes32("BTC/USD"); // == BitSyncTypes.feedIdFromLabel("BTC/USD")
         d.oracle.upsertFeed(btcUsd, 8, c.btcUsdMinSigners, 1 hours);
         d.registry.register("BTC", "USD", btcUsd, "Bitcoin / US Dollar");
 

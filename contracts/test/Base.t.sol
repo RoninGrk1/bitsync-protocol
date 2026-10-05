@@ -8,7 +8,7 @@ import {SlashingManager} from "../src/SlashingManager.sol";
 import {FeeManager} from "../src/FeeManager.sol";
 import {OracleAggregator} from "../src/OracleAggregator.sol";
 import {FeedRegistry} from "../src/FeedRegistry.sol";
-import {Report, Observation} from "../src/BitSyncTypes.sol";
+import {Report, Observation, BitSyncTypes} from "../src/BitSyncTypes.sol";
 
 /// @dev Shared fixture. The test contract is the BSY treasury and governance; a
 ///      separate `guardian` holds pause rights.
@@ -17,7 +17,7 @@ abstract contract BaseTest is Test {
     uint256 internal constant MIN_STAKE = 10_000 * UNIT;
     uint64 internal constant UNBONDING = 7 days;
     uint16 internal constant SLASH_BPS = 1_000; // 10%
-    bytes32 internal constant FEED = keccak256("BTC/USD");
+    bytes32 internal constant FEED = bytes32("BTC/USD"); // BitSyncTypes.feedIdFromLabel
 
     BSY internal bsy;
     StakingManager internal staking;

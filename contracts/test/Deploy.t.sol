@@ -3,8 +3,10 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {DeployScript} from "../script/Deploy.s.sol";
-import {Report, Observation} from "../src/BitSyncTypes.sol";
+import {Report, Observation, BitSyncTypes} from "../src/BitSyncTypes.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {MockAggregatorV3} from "../src/mocks/MockAggregatorV3.sol";
+import {OracleAggregator} from "../src/OracleAggregator.sol";
 
 /// @notice End-to-end: deploy via the script, then exercise governance, pause,
 ///         staking, a quorum report and an equivocation slash on the deployed system.
@@ -101,7 +103,7 @@ contract DeployTest is Test {
             vm.stopPrank();
         }
         // 3. Quorum report (3 of 4 equal stake, BTC/USD requires >= 3 signers).
-        bytes32 feed = keccak256("BTC/USD");
+        bytes32 feed = bytes32("BTC/USD");
         Report memory r = Report(feed, 64_250 * int256(UNIT), 10 * UNIT, uint64(block.timestamp), 1);
         bytes32 digest = d.oracle.reportDigest(r);
         bytes[] memory sigs = _sorted3(digest);
@@ -129,6 +131,31 @@ contract DeployTest is Test {
         );
         assertEq(d.staking.stakedOf(ops[0]), 18_000 * UNIT);
         assertEq(d.bsy.balanceOf(address(d.timelock)), 42_000_000 * UNIT - 80_000 * UNIT + 2_000 * UNIT);
+    }
+
+
+    /// BSY-C3: deployer retains no COMPLIANCE_ROLE; designated compliance holds it.
+    function test_Audit_PresaleComplianceHandedOff() public {
+        address compliance = makeAddr("complianceSigner");
+        DeployScript.Config memory cfg = script.defaultConfig(address(script), multisig, compliance);
+        cfg.ethUsdFeed = address(new MockAggregatorV3(8, 2000e8));
+        d = script.deploy(cfg);
+        assertTrue(d.presale.hasRole(d.presale.COMPLIANCE_ROLE(), compliance));
+        assertFalse(d.presale.hasRole(d.presale.COMPLIANCE_ROLE(), address(script)));
+        assertFalse(d.presale.hasRole(bytes32(0), address(script)));
+        assertFalse(d.presale.hasRole(d.presale.GOVERNANCE_ROLE(), address(script)));
+        assertTrue(d.presale.hasRole(bytes32(0), address(d.timelock)));
+    }
+
+    /// BSY-H1: registered feed id matches canonical feedIdFromLabel (not keccak).
+    function test_Audit_FeedIdMatchesLabelEncoding() public view {
+        bytes32 expected = BitSyncTypes.feedIdFromLabel("BTC/USD");
+        assertEq(expected, bytes32("BTC/USD"));
+        assertTrue(expected != keccak256("BTC/USD"));
+        (bool active,,,) = d.oracle.feeds(expected);
+        assertTrue(active);
+        (bool bad,,,) = d.oracle.feeds(keccak256("BTC/USD"));
+        assertFalse(bad);
     }
 
     function _sorted3(bytes32 digest) internal view returns (bytes[] memory sigs) {

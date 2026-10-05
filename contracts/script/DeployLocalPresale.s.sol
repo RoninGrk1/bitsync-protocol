@@ -24,7 +24,7 @@ contract DeployLocalPresale is Script {
 
         BSYPresale sale = new BSYPresale(address(bsy), deployer, deployer, address(feed));
         sale.grantRole(sale.GUARDIAN_ROLE(), deployer);
-        sale.grantRole(sale.COMPLIANCE_ROLE(), deployer);
+        sale.grantRole(sale.COMPLIANCE_ROLE(), deployer); // local demo only
 
         uint64 start = uint64(block.timestamp);
         sale.setConfig(
