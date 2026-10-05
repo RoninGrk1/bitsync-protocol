@@ -31,20 +31,39 @@ BSY is an **institutional-grade utility token**:
 3. **Governance (roadmap)** — progressive decentralization may add BSY-weighted
    voting (see [GOVERNANCE.md](./GOVERNANCE.md)).
 
-## Proposed genesis allocation (example)
+## Genesis allocation
 
-These percentages are **illustrative** and must be finalised by the deploying
-multisig / timelock before any public distribution:
+All **42,000,000 BSY** are minted once to the treasury/timelock in the ERC-20
+constructor. Subsequent distribution is ordinary ERC-20 transfer (**no mint**).
 
-| Bucket | Example % | Notes |
+| Bucket | % | Amount (BSY) | Status |
+| --- | --- | --- | --- |
+| **Presale** | **15%** | **6,300,000** | **Fixed** — funded into `BSYPresale` at deploy |
+| Ecosystem / rewards | 40% | 16,800,000 | Proposed / example |
+| Treasury / runway | 25% | 10,500,000 | Proposed / example |
+| Early contributors | 20% | 8,400,000 | Proposed / example |
+
+Non-presale rows remain **proposed / example** pending governance finalisation.
+
+## Presale parameters (suggested / governance-configurable)
+
+Defaults below are **suggestions** for the web UI and local demo. On-chain values
+are whatever governance sets via `BSYPresale.setConfig` **before** `start`.
+
+| Parameter | Suggested default | Notes |
 | --- | --- | --- |
-| Ecosystem / rewards | 40% | Operator incentives, grants — vesting TBD |
-| Treasury / runway | 25% | Controlled by BitSync timelock |
-| Early contributors | 20% | Vesting TBD |
-| Community / liquidity | 15% | Programs TBD |
+| Allocation | 6,300,000 BSY | Fixed hard cap (= 15%) |
+| Price | **$0.20 / BSY** | `priceUsdPerBsy` in 8-dec USD units |
+| Hard-cap USD | ~**$1.26M** | 6.3M × $0.20 |
+| Implied FDV at sale price | ~**$8.4M** | 42M × $0.20 (illustrative only) |
+| Listing reference | **$0.30** | Marketing reference only — not on-chain |
+| Payment | ETH (via ETH/USD feed) + USDC/USDT | Stables allowlisted |
+| Soft cap | Configurable (e.g. 1M BSY) | Miss → refunds |
+| Vesting | e.g. 25% TGE + 90d linear | Configurable bps / duration |
+| KYC | EIP-712 compliance signatures | Optional gate |
 
-All 42M BSY are minted to the treasury/genesis address in the ERC-20
-constructor; subsequent distribution is ordinary ERC-20 transfer.
+None of the USD price / FDV / listing figures are financial advice or a
+guarantee of secondary-market price.
 
 ## Bitcoin-native representation (roadmap)
 

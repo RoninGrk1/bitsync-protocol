@@ -40,3 +40,16 @@ id_ed25519*
 # Misc
 coverage/
 lcov.info
+
+# Presale local demo
+apps/presale-web/.env.local
+.anvil-presale.pid
+.anvil-presale.log
+.deploy-presale.log
+contracts/broadcast/
+contracts/cache/
+
+.next/
+apps/**/.next/
+cache/
+out/

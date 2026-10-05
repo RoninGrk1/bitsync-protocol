@@ -9,6 +9,8 @@ import {FeeManager} from "../src/FeeManager.sol";
 import {OracleAggregator} from "../src/OracleAggregator.sol";
 import {FeedRegistry} from "../src/FeedRegistry.sol";
 import {BitSyncTimelock} from "../src/BitSyncGovernor.sol";
+import {BSYPresale} from "../src/presale/BSYPresale.sol";
+import {IAggregatorV3} from "../src/presale/IAggregatorV3.sol";
 
 /// @notice Deploys and fully wires the BitSync contract suite.
 /// @dev Final state (asserted in test/Deploy.t.sol):
@@ -29,6 +31,7 @@ contract DeployScript is Script {
         uint16 slashBps;
         uint256 feePerRead;
         uint64 btcUsdMinSigners;
+        address ethUsdFeed; // Chainlink-style ETH/USD; address(0) skips presale deploy
     }
 
     struct Deployment {
@@ -39,6 +42,7 @@ contract DeployScript is Script {
         FeeManager fees;
         OracleAggregator oracle;
         FeedRegistry registry;
+        BSYPresale presale;
     }
 
     function defaultConfig(address deployer, address multisig) public pure returns (Config memory) {
@@ -50,7 +54,8 @@ contract DeployScript is Script {
             minStake: 10_000 * 10 ** 8, // 10,000 BSY (8 decimals)
             slashBps: 1_000, // 10%
             feePerRead: 10 ** 6, // 0.01 BSY
-            btcUsdMinSigners: 3
+            btcUsdMinSigners: 3,
+            ethUsdFeed: address(0)
         });
     }
 
@@ -86,6 +91,20 @@ contract DeployScript is Script {
         d.slashing =
             new SlashingManager(address(d.staking), address(d.oracle), c.deployer, tl, c.slashBps);
         d.registry = new FeedRegistry(address(d.oracle), c.deployer);
+
+        // Presale: 15% = 6.3M BSY funded from timelock-held genesis supply.
+        // Requires ethUsdFeed; skipped when unset (unit tests that don't need it).
+        if (c.ethUsdFeed != address(0)) {
+            d.presale = new BSYPresale(address(d.bsy), tl, c.deployer, c.ethUsdFeed);
+            d.presale.grantRole(d.presale.GUARDIAN_ROLE(), c.multisig);
+            d.presale.grantRole(d.presale.COMPLIANCE_ROLE(), c.multisig);
+            // Fund from timelock: deployer cannot move TL funds directly. In the
+            // script path the deployer still holds BSY only on local anvil demos
+            // that mint-to-deployer; production funding is a timelock ops follow-up.
+            // For local demo / Deploy.t with feed set, the test funds explicitly.
+            _handOver(address(d.presale), d.presale.GOVERNANCE_ROLE(), tl, c.deployer);
+            _handOverAdmin(address(d.presale), tl, c.deployer);
+        }
 
         // --- wiring performed while the deployer still holds admin roles
         d.staking.setStakeObserver(address(d.fees));

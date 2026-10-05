@@ -108,6 +108,22 @@ GitHub Actions workflows for Rust, Solidity and TypeScript live in
 
 Multisig → progressive decentralization. See [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
 
+
+
+## BSY Presale (local demo)
+
+Presale contracts live under `contracts/src/presale/`. The institutional marketing site is `apps/presale-web`.
+
+```bash
+./scripts/local-presale-demo.sh          # Anvil + deploy mocks + Next.js on :3001
+# or
+./scripts/local-presale-demo.sh contracts
+cd apps/presale-web && npm install && npm run dev
+```
+
+Suggested (governance-configurable) price: **$0.20 / BSY** for **6.3M BSY (15%)**. See `docs/TOKENOMICS.md`.
+**Unaudited — do not use with real funds.**
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).

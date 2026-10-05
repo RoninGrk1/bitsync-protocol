@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  min-height: 100%;
+  background: #050816;
+  color: #F8FAFC;
+}
+
+body {
+  background-image: theme("backgroundImage.horizon-glow");
+  background-attachment: fixed;
+}
+
+a { color: inherit; text-decoration: none; }
+
+.glass {
+  @apply bg-ink-card/70 backdrop-blur-md border border-white/10 rounded-2xl;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-xl bg-sync px-5 py-3 font-semibold text-white
+    shadow-[0_0_24px_rgba(30,144,255,0.45)] transition hover:bg-sync-glow disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center justify-center rounded-xl border border-white/15 px-5 py-3 font-medium text-bit
+    hover:border-sync/60 hover:text-sync-glow transition;
+}
