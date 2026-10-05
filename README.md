@@ -4,8 +4,10 @@
 
 BitSync aggregates cryptographically signed market data from institutional
 sources, reaches Byzantine-fault-tolerant consensus among stake-weighted
-operators, publishes reports to Bitcoin L2 / EVM contracts, and periodically
-anchors Merkle commitments to Bitcoin itself.
+operators over libp2p gossipsub, publishes reports to Bitcoin L2 / EVM
+contracts, and periodically anchors Merkle commitments to Bitcoin itself.
+Networked rounds (observe → aggregate → co-sign) are exercised by the
+`networked_rounds` integration test and by the compose devnet configs.
 
 > **Security status:** this software is **unaudited** and **not mainnet-ready**.
 > See [docs/SECURITY.md](docs/SECURITY.md).
@@ -34,10 +36,14 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 - Rust 1.85+, Foundry, Node 18+
 
-### Oracle node (offline round)
+### Oracle node
 
 ```bash
+# Solo / smoke (in-memory mesh, single-operator committee)
 cargo run -p bitsync-node -- --config config/node.toml --once
+
+# Four-node networked integration test (1 outlier still finalises; 2 faulty halt)
+cargo test -p bitsync-node --test networked_rounds
 ```
 
 ### Contracts

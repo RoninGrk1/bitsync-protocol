@@ -7,7 +7,7 @@ use prometheus::{IntCounter, IntGauge, Opts, Registry};
 pub struct NodeMetrics {
     /// Successful rounds.
     pub rounds_ok: IntCounter,
-    /// Failed rounds.
+    /// Failed / halted rounds.
     pub rounds_failed: IntCounter,
     /// Last successful round number.
     pub last_round: IntGauge,
@@ -26,7 +26,7 @@ impl NodeMetrics {
         ))?;
         let rounds_failed = IntCounter::with_opts(Opts::new(
             "bitsync_rounds_failed",
-            "Failed aggregation rounds",
+            "Failed / halted aggregation rounds",
         ))?;
         let last_round =
             IntGauge::with_opts(Opts::new("bitsync_last_round", "Last successful round"))?;

@@ -186,9 +186,11 @@ pub fn aggregate(
     let median = stake_weighted_median(observations)?;
     let prices: Vec<i128> = observations.iter().map(|o| o.price).collect();
     let mad_v = mad(&prices, median);
-    // Avoid a zero band wiping everything when all agree: treat MAD==0 as "no outliers".
+    // MAD == 0 means a strict majority sits on the exact median. Keep only that
+    // median value (band 0) so a lone Byzantine outlier is rejected. When all
+    // observations already equal the median they remain accepted.
     let band = if mad_v == 0 {
-        i128::MAX
+        0
     } else {
         ((cfg.mad_k * mad_v as f64).ceil()) as i128
     };

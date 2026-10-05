@@ -84,3 +84,25 @@ protocol software in this repository.
 ## Security status
 
 **Unaudited. Not mainnet-ready.** See [SECURITY.md](./SECURITY.md).
+
+
+## Networked rounds (live)
+
+Oracle nodes gossip **signed observations** on `bitsync/observations/1` and
+**report signature shares** on `bitsync/reports/1` (libp2p gossipsub). Each round:
+
+1. Fetch a signed source tick (or inject a fault in tests).
+2. Publish an EIP-712-signed [`Observation`](../crates/bitsync-crypto/src/observation.rs).
+3. Collect peer observations for `collect_timeout_ms`, run stake-weighted median
+   aggregation with MAD outlier rejection (`bitsync-consensus`).
+4. Co-sign the aggregate [`Report`](../crates/bitsync-crypto/src/report.rs) and
+   collect a stake quorum (`> 2/3` of known committee stake and `≥ 2f+1` signers).
+5. Archive the report (IPFS/Arweave traits) and expose Prometheus metrics.
+
+Solo / `--once` runs on an in-memory mesh with a one-operator committee so
+offline smoke tests still finalise. Devnet configs under `deploy/devnet/` set
+`listen` + `bootstrap_peers` so compose nodes dial each other over libp2p TCP.
+
+Integration tests in `crates/bitsync-node/tests/networked_rounds.rs` spin up
+four in-process nodes on the in-memory mesh: 3 honest + 1 outlier still
+finalise; 2 faulty of 4 halt safely without a finalised report.

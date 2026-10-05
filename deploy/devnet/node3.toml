@@ -3,5 +3,13 @@ feeds = ["BTC/USD", "ETH/USD"]
 metrics_listen = "0.0.0.0:9100"
 committee_n = 4
 round_interval_secs = 5
+collect_timeout_ms = 2000
 chain_id = 31337
 verifying_contract = "0x1111111111111111111111111111111111111111"
+operator_stake = 1000000000000
+listen = "/ip4/0.0.0.0/tcp/4001"
+bootstrap_peers = [
+  "/dns4/node0/tcp/4001",
+  "/dns4/node1/tcp/4001",
+  "/dns4/node2/tcp/4001"
+]
